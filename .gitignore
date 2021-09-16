@@ -120,6 +120,8 @@ venv.bak/
 *.log.json
 /work_dirs
 /mmcls/.mim
+work_dirs
+configs_bnn
 
 # Pytorch
 *.pth

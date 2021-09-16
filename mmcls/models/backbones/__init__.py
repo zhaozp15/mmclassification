@@ -31,6 +31,7 @@ from .tnt import TNT
 from .twins import PCPVT, SVT
 from .vgg import VGG
 from .vision_transformer import VisionTransformer
+from .mfnet import MFNet
 
 __all__ = [
     'LeNet5',
@@ -72,3 +73,5 @@ __all__ = [
     'RepMLPNet',
     'PoolFormer',
 ]
+
+__all__ += ['MFNet']
