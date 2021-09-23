@@ -13,7 +13,7 @@ from .binary_utils.multifea_blocks import MF1Block, MF11Block, MF12Block, MF3Blo
 
 
 @BACKBONES.register_module()
-class MFNet(nn.Module):
+class MFNet(BaseBackbone):
     """MobileNet architecture"""
 
     # Parameters to build layers. 4 parameters are needed to construct a
@@ -55,21 +55,27 @@ class MFNet(nn.Module):
                  conv_cfg=None,
                  norm_cfg=dict(type='BN'),
                  stem_conv_ks=7,
+                 num_stages=5,
                  in_channels=3,
                  stem_channels=32,
                  norm_eval=False,
-                 with_cp=False, **kwargs):
-        super(MFNet, self).__init__()
+                 with_cp=False,
+                 init_cfg=[
+                     dict(type='Kaiming', layer=['Conv2d']),
+                     dict(
+                         type='Constant',
+                         val=1,
+                         layer=['_BatchNorm', 'GroupNorm'])
+                 ],
+                 **kwargs):
+        super(MFNet, self).__init__(init_cfg)
+        if frozen_stages not in range(-1, 6):
+            raise ValueError('frozen_stages must be in range(-1, 6). '
+                             f'But received {frozen_stages}')
+        self.num_stages = num_stages
+        assert num_stages >= 1 and num_stages <= 5
         self.out_indices = out_indices
-        for index in out_indices:
-            if index not in range(0, 5):
-                raise ValueError('the item in out_indices must in '
-                                 f'range(0, 5). But received {index}')
-
-        # if frozen_stages not in range(-1, 5):
-        #     raise ValueError('frozen_stages must be in range(-1, 8). '
-        #                      f'But received {frozen_stages}')
-        self.out_indices = out_indices
+        assert max(out_indices) < num_stages
         self.frozen_stages = frozen_stages
         self.conv_cfg = conv_cfg
         self.norm_cfg = norm_cfg
@@ -137,28 +143,25 @@ class MFNet(nn.Module):
         return nn.Sequential(*layers)
 
     def init_weights(self, pretrained=None):
-        if isinstance(pretrained, str):
-            logger = logging.getLogger()
-            load_checkpoint(self, pretrained, strict=False, logger=logger)
-        elif pretrained is None:
-            for m in self.modules():
-                if isinstance(m, nn.Conv2d):
-                    kaiming_init(m)
-                elif isinstance(m, (_BatchNorm, nn.GroupNorm)):
-                    constant_init(m, 1)
-        else:
-            raise TypeError('pretrained must be a str or None')
+        super(MFNet, self).init_weights()
+
+        if (isinstance(self.init_cfg, dict)
+                and self.init_cfg['type'] == 'Pretrained'):
+            return
 
     def forward(self, x):
         x = self.stem_conv(x)
         x = self.stem_act(x)
         x = self.stem_bn(x)
 
+        outs = []
         for i, layer_name in enumerate(self.layers):
             layer = getattr(self, layer_name)
             x = layer(x)
+            if i in self.out_indices:
+                outs.append(x)
+        return tuple(outs)
 
-        return x
 
     def _freeze_stages(self):
         if self.frozen_stages != -1:
@@ -168,7 +171,7 @@ class MFNet(nn.Module):
                 param.requires_grad = False
             for param in self.stem_act.parameters():
                 param.requires_grad = False
-            for i in self.frozen_stages:
+            for i in range(1, self.frozen_stages + 1):
                 layer = getattr(self, f'layer{i}')
                 layer.eval()
                 for param in layer.parameters():
