@@ -2,7 +2,7 @@ from torch.autograd import Function
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .binary_functions import LearnableBias, LearnableScale
+from .binary_functions import LearnableBias, LearnableScale, RANetActSign
 from .binary_convs import BLConv2d
 
 from scipy.stats import norm
@@ -81,6 +81,8 @@ class FeaExpand(nn.Module):
         8ba: 在8的基础上增加bn层和激活层，顺序为先bn后激活
         82: 仅限于2张特征图，第1张不变，第2张使用conv计算得到
         8bin：使用二值conv进行通道数扩增
+        9-symmetric: 2个阈值通过余弦相似度得到单独的loss进行学习，2个阈值是对称的
+        9-independent: 2个阈值是独立的
     """
     def __init__(self, expansion=3, mode='1', in_channels=None, thres=None):
         super(FeaExpand, self).__init__()
@@ -182,7 +184,21 @@ class FeaExpand(nn.Module):
         elif '8bin' == self.mode:
             out_channels = in_channels * expansion
             self.conv = BLConv2d(in_channels, out_channels, kernel_size=1, stride=1, bias=False, binary_type=(True, False))
-
+        
+        elif '9-symmetric' == self.mode:
+            init = thres[0]
+            # learnable_bias
+            self.lb = nn.Parameter(torch.ones(1, 1, 1, 1) * init, requires_grad=True)
+            self.sign1 = RANetActSign()
+            self.sign2 = RANetActSign()
+        
+        elif '9-independent' == self.mode:
+            init1 = thres[0]
+            init2 = thres[1]
+            self.lb1 = nn.Parameter(torch.ones(1, 1, 1, 1) * init1, requires_grad=True)
+            self.lb2 = nn.Parameter(torch.ones(1, 1, 1, 1) * init2, requires_grad=True)
+            self.sign1 = RANetActSign()
+            self.sign2 = RANetActSign()
 
     def bin_id_to_thres(self, bins, bin_id, low, high):
         interval = (high - low) / bins
@@ -356,5 +372,36 @@ class FeaExpand(nn.Module):
             out.append(x)
             out2 = self.conv(x)
             out.append(out2)
+        
+        elif '9-symmetric' == self.mode:
+            N = x.shape[0]
+            C = x.shape[1]
+            x_detach = x.detach()
+            fea_bin1 = self.sign1(x_detach - self.lb).reshape(N, C, -1)
+            fea_bin2 = self.sign2(x_detach + self.lb).reshape(N, C, -1)
+            cos_sim = F.cosine_similarity(fea_bin1, fea_bin2, dim=2)
+            cos_sim = cos_sim.abs().sum()
+
+            fea1 = x - self.lb.detach()
+            fea2 = x + self.lb.detach()
+            out = torch.cat((fea1, fea2), dim=1)
+
+            return cos_sim, out
+        
+        elif '9-independent' == self.mode:
+            N = x.shape[0]
+            C = x.shape[1]
+            x_detach = x.detach()
+            fea_bin1 = self.sign1(x_detach + self.lb1).reshape(N, C, -1)
+            fea_bin2 = self.sign2(x_detach + self.lb2).reshape(N, C, -1)
+            cos_sim = F.cosine_similarity(fea_bin1, fea_bin2, dim=2)
+            cos_sim = cos_sim.abs().sum()
+
+            fea1 = x + self.lb1.detach()
+            fea2 = x + self.lb2.detach()
+            out = torch.cat((fea1, fea2), dim=1)
+
+            return cos_sim, out
+        
         
         return torch.cat(out, dim=1)

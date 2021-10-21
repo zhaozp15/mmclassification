@@ -9,7 +9,7 @@ from mmcv.runner import load_checkpoint
 
 from ..builder import BACKBONES
 from .base_backbone import BaseBackbone
-from .binary_utils.multifea_blocks import MF1Block, MF11Block, MF12Block, MF3Block, MF1s1Block, MF1s2Block, MF6Block, MF1terBlock
+from .binary_utils.multifea_blocks import MF1Block, MF11Block, MF12Block, MF3Block, MF1s1Block, MF1s2Block, MF6Block, MF1terBlock, MF1LearnableBlock
 
 
 @BACKBONES.register_module()
@@ -38,6 +38,7 @@ class MFNet(BaseBackbone):
         'mf_6': (MF12Block, [[64, 2, 2], [128, 3, 2], [256, 9, 2], [512, 1, 1], [1024, 1, 2]]),
         'mf_6_mfg': (MF6Block, [[64, 2, 2], [128, 3, 2], [256, 9, 2], [512, 1, 1], [1024, 1, 2]]),
         'mf_5_ter': (MF1terBlock, [[64, 2, 2], [128, 5, 2], [256, 11, 2], [512, 1, 1], [1024, 1, 2]]),
+        'mf_4_sim': (MF1LearnableBlock, [[64, 2, 2], [128, 4, 2], [256, 8, 2], [512, 1, 1], [1024, 2, 2]]),
     }
 
     def __init__(self,
@@ -95,30 +96,29 @@ class MFNet(BaseBackbone):
         self.stem_act = nn.PReLU(stem_channels)
         self.stem_bn = nn.BatchNorm2d(stem_channels)
 
-        self.layers = []
-
+        self.layers = nn.ModuleList()
         self.block, self.layers_cfg = self.arch_settings[arch]
+        in_channels = self.in_channels
         for i, layer_cfg in enumerate(self.layers_cfg):
-            if binary_type_cfg:
-                stage_binary_type = binary_type_cfg[i]
-            else:
-                stage_binary_type = binary_type
             out_channels, num_blocks, stride = layer_cfg
-            inverted_res_layer = self.make_layer(
-                out_channels=out_channels,
-                num_blocks=num_blocks,
-                stride=stride,
-                binary_type=stage_binary_type,
-                fea_num=fea_num,
-                fexpand_mode=fexpand_mode,
-                thres=thres,
-                nonlinear=block_act,
-                shortcut=shortcut_act,
-                ahead_fexpand=af_act,
-                **kwargs)
-            layer_name = f'layer{i + 1}'
-            self.add_module(layer_name, inverted_res_layer)
-            self.layers.append(layer_name)
+            for j in range(num_blocks):
+                if j >= 1: stride = 1
+                # breakpoint()
+                self.layers.append(
+                    self.block(
+                        in_channels,
+                        out_channels,
+                        stride,
+                        binary_type=binary_type,
+                        fea_num=fea_num,
+                        fexpand_mode=fexpand_mode,
+                        thres=thres,
+                        nonlinear=block_act,
+                        shortcut=shortcut_act,
+                        ahead_fexpand=af_act,
+                        **kwargs))
+                # breakpoint
+                in_channels = out_channels
         
         self._freeze_stages()
 
@@ -154,14 +154,19 @@ class MFNet(BaseBackbone):
         x = self.stem_act(x)
         x = self.stem_bn(x)
 
-        outs = []
-        for i, layer_name in enumerate(self.layers):
-            layer = getattr(self, layer_name)
-            x = layer(x)
-            if i in self.out_indices:
-                outs.append(x)
-        return tuple(outs)
+        # only for compute cos_sim loss
+        if self.block == MF1LearnableBlock:
+            cos_sim = 0
+            for layer in self.layers:
+                x, layer_cos_sim = layer(x)
+                cos_sim += layer_cos_sim
 
+            return cos_sim, (x, )
+
+        for layer in self.layers:
+            x = layer(x)
+
+        return (x, )
 
     def _freeze_stages(self):
         if self.frozen_stages != -1:

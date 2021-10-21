@@ -35,7 +35,7 @@ class DistillingImageClassifier(ImageClassifier):
         """
         x = self.backbone(img)
         if self.with_neck:
-            x = self.neck(x)
+            x = self.neck(x[-1])
         return x
 
     def forward_train(self, img, gt_label, **kwargs):
