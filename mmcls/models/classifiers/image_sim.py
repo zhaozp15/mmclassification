@@ -72,16 +72,15 @@ class ImageClassifierSim(ImageClassifier):
                     'your backbone config to disable this feature.')
             raise e
 
-        # losses.update(loss)
-        losses['loss_cls'] = loss['loss']
-
+        losses.update(loss)
+        losses['loss_cls'] = losses.pop('loss')
         losses['loss_sim'] = cos_sim * self.loss_sim_weight
 
         return losses
 
     def simple_test(self, img, img_metas):
         """Test without augmentation."""
-        x = self.extract_feat(img)
+        cos_sim, x = self.extract_feat(img)
 
         try:
             res = self.head.simple_test(x)
