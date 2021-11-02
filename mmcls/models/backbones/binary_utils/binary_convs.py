@@ -1,6 +1,6 @@
 import torch.nn as nn
 import torch.nn.functional as F
-from .binary_functions import (IRNetSign, RANetActSign, RANetWSign, STESign, TernarySign)
+from .functions import (IRNetSign, RANetActSign, RANetWSign, STESign, TernarySign)
 import torch
 import math
 

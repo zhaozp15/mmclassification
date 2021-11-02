@@ -2,7 +2,7 @@ from torch.autograd import Function
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .binary_functions import LearnableBias, LearnableScale, RANetActSign
+from .functions import LearnableBias, LearnableScale, RANetActSign
 from .binary_convs import BLConv2d
 
 from scipy.stats import norm
@@ -380,7 +380,7 @@ class FeaExpand(nn.Module):
             fea_bin1 = self.sign1(x_detach - self.lb).reshape(N, C, -1)
             fea_bin2 = self.sign2(x_detach + self.lb).reshape(N, C, -1)
             cos_sim = F.cosine_similarity(fea_bin1, fea_bin2, dim=2)
-            cos_sim = cos_sim.abs().sum()
+            cos_sim = cos_sim.abs().sum() / N
 
             fea1 = x - self.lb.detach()
             fea2 = x + self.lb.detach()
@@ -395,7 +395,7 @@ class FeaExpand(nn.Module):
             fea_bin1 = self.sign1(x_detach + self.lb1).reshape(N, C, -1)
             fea_bin2 = self.sign2(x_detach + self.lb2).reshape(N, C, -1)
             cos_sim = F.cosine_similarity(fea_bin1, fea_bin2, dim=2)
-            cos_sim = cos_sim.abs().sum()
+            cos_sim = cos_sim.abs().sum() / N
 
             fea1 = x + self.lb1.detach()
             fea2 = x + self.lb2.detach()

@@ -13,13 +13,6 @@ class Mish(nn.Module):
         x = x * (torch.tanh(F.softplus(x)))
         return x
 
-act_name_map = {
-        'hardtanh': nn.Hardtanh,
-        'relu': nn.ReLU,
-        'prelu_one': nn.PReLU,
-        'mish': Mish,
-    }
-
 
 class IRNetSign(Function):
     """Sign function from IR-Net, which can add EDE progress"""
@@ -257,3 +250,41 @@ class LearnableScale3(nn.Module):
         out = out * self.gamma.expand_as(x)
 
         return out
+
+# act functions that need no arguments
+act_map_0 = {
+        'hardtanh': nn.Hardtanh,
+        'relu': nn.ReLU,
+        'prelu_one': nn.PReLU,
+        'mish': Mish,
+    }
+
+# act functins that need a 'channels' argument
+act_map_1 = {
+        'prelu': nn.PReLU,
+        'rprelu': RPRelu,
+        'scale': LearnableScale,
+        'scale3': LearnableScale3,
+        'dprelu': DPReLU,
+        'nprelu': NPReLU,
+    }
+
+def build_act(act, channels):
+    if act == 'identity':
+        return nn.Sequential()
+    elif act == 'abs':
+        return torch.abs
+    elif act in act_map_0:
+        return act_map_0[act]()
+    elif act in act_map_1:
+        return act_map_1[act](channels)
+    elif act == 'prelu_pi=1':
+        return nn.PReLU(channels, init=1.0)
+    elif act == 'prelu_one_pi=1':
+        return nn.PReLU(1, init=1.0)
+    elif act == 'rprelu_pi=1':
+        return RPRelu(channels, prelu_init=1.0)
+    elif act == 'dprelu_pi=0.25_1':
+        return DPReLU(channels, init_pos=1.0, init_neg=0.25)
+    else:
+        raise ValueError(f'Unsupported activation function: {act}')

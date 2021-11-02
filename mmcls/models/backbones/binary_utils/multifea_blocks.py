@@ -1,54 +1,31 @@
 import torch
 import torch.nn as nn
-from .binary_convs import BLConv2d, BConvWS2d, TAConv2d
-from .binary_functions import (act_name_map,
-    LearnableScale, LearnableScale3, RPRelu, CfgLayer, DPReLU, NPReLU, PReLUsc,
-    ScaleSum, LSaddSS)
+from .binary_convs import BLConv2d, TAConv2d
+from .functions import build_act
 from .feature_expand import FeaExpand
 
 
-class MultiFea_Block(nn.Module):
-    expansion = 1
+class MultiFeaBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, stride=1, downsample=None,
-                 nonlinear=('identity', 'hardtanh'), fea_num=1, mode='1', thres=None, **kwargs):
-        super(MultiFea_Block, self).__init__()
+                 nonlinear=('identity', 'hardtanh'),
+                 fexpand_num=1, fexpand_mode='1', fexpand_thres=None,
+                 **kwargs):
+        super(MultiFeaBlock, self).__init__()
         self.out_channels = out_channels
         self.stride = stride
         self.downsample = downsample
-        self.fea_num = fea_num
-        self.fexpand1 = FeaExpand(expansion=fea_num, mode=mode, in_channels=in_channels, thres=thres)
-        self.conv1 = BLConv2d(in_channels * fea_num, out_channels, kernel_size=3, stride=stride, padding=1, bias=False, **kwargs)
-        self.nonlinear11 = self._build_act(nonlinear[0])
+        self.fexpand_num = fexpand_num
+        self.fexpand1 = FeaExpand(expansion=fexpand_num, mode=fexpand_mode, in_channels=in_channels, thres=fexpand_thres)
+        self.conv1 = BLConv2d(in_channels * fexpand_num, out_channels, kernel_size=3, stride=stride, padding=1, bias=False, **kwargs)
+        self.nonlinear11 = build_act(nonlinear[0], out_channels)
         self.bn1 = nn.BatchNorm2d(out_channels)
-        self.nonlinear12 = self._build_act(nonlinear[1])
-        self.fexpand2 = FeaExpand(expansion=fea_num, mode=mode, in_channels=out_channels, thres=thres)
-        self.conv2 = BLConv2d(out_channels * fea_num, out_channels, kernel_size=3, stride=1, padding=1, bias=False, **kwargs)
-        self.nonlinear21 = self._build_act(nonlinear[0])
+        self.nonlinear12 = build_act(nonlinear[1], out_channels)
+        self.fexpand2 = FeaExpand(expansion=fexpand_num, mode=fexpand_mode, in_channels=out_channels, thres=fexpand_thres)
+        self.conv2 = BLConv2d(out_channels * fexpand_num, out_channels, kernel_size=3, stride=1, padding=1, bias=False, **kwargs)
+        self.nonlinear21 = build_act(nonlinear[0], out_channels)
         self.bn2 = nn.BatchNorm2d(out_channels)
-        self.nonlinear22 = self._build_act(nonlinear[1])
-
-
-    def _build_act(self, act_name):
-        if act_name == 'identity':
-            return nn.Sequential()
-        elif act_name == 'abs':
-            return torch.abs
-        elif act_name == 'prelu':
-            return nn.PReLU(self.out_channels)
-        elif act_name == 'rprelu':
-            return RPRelu(self.out_channels)
-        elif act_name == 'rprelu_pi=1':
-            return RPRelu(self.out_channels, prelu_init=1.0)
-        elif act_name == 'prelu_pi=1':
-            return nn.PReLU(self.out_channels, init=1.0)
-        elif act_name == 'scale':
-            return LearnableScale(self.out_channels)
-        elif act_name == 'scale3':
-            return LearnableScale3(self.out_channels)
-        else:
-            return act_name_map[act_name]()
-
+        self.nonlinear22 = build_act(nonlinear[1], out_channels)
 
     def forward(self, x):
         identity = x
@@ -73,6 +50,53 @@ class MultiFea_Block(nn.Module):
         return out
 
 
+class MultiFeaSimBlock(nn.Module):
+
+    def __init__(self, in_channels, out_channels, stride=1, downsample=None,
+                 nonlinear=('identity', 'hardtanh'),
+                 fexpand_num=2, fexpand_mode='indepedent', fexpand_thres=(-0.6, 0.6),
+                 **kwargs):
+        super(MultiFeaSimBlock, self).__init__()
+        self.out_channels = out_channels
+        self.stride = stride
+        self.downsample = downsample
+        self.fexpand_num = fexpand_num
+        self.fexpand1 = FeaExpand(expansion=fexpand_num, mode=fexpand_mode, in_channels=in_channels, thres=fexpand_thres)
+        self.conv1 = BLConv2d(in_channels * fexpand_num, out_channels, kernel_size=3, stride=stride, padding=1, bias=False, **kwargs)
+        self.nonlinear11 = build_act(nonlinear[0], out_channels)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.nonlinear12 = build_act(nonlinear[1], out_channels)
+        self.fexpand2 = FeaExpand(expansion=fexpand_num, mode=fexpand_mode, in_channels=out_channels, thres=fexpand_thres)
+        self.conv2 = BLConv2d(out_channels * fexpand_num, out_channels, kernel_size=3, stride=1, padding=1, bias=False, **kwargs)
+        self.nonlinear21 = build_act(nonlinear[0], out_channels)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.nonlinear22 = build_act(nonlinear[1], out_channels)
+
+    def forward(self, x):
+        identity = x
+
+        cos_sim1, out = self.fexpand1(x)
+        out = self.conv1(out)
+        out = self.nonlinear11(out)
+        out = self.bn1(out)
+        if self.downsample is not None:
+            identity = self.downsample(x)
+        out += identity
+        out = self.nonlinear12(out)
+
+        identity = out
+        cos_sim2, out = self.fexpand2(out)
+        out = self.conv2(out)
+        out = self.nonlinear21(out)
+        out = self.bn2(out)
+        out += identity
+        out = self.nonlinear22(out)
+
+        cos_sim = cos_sim1 + cos_sim2
+
+        return cos_sim, out
+
+
 class MF1Block(nn.Module):
     expansion = 1
 
@@ -88,20 +112,20 @@ class MF1Block(nn.Module):
 
         if self.stride == 2:
             self.pooling = nn.AvgPool2d(2, 2)
-        self.shortcut1 = self._build_act(shortcut, in_channels)
-        self.ahead_fexpand1 = self._build_act(ahead_fexpand, in_channels)
+        self.shortcut1 = build_act(shortcut, in_channels)
+        self.ahead_fexpand1 = build_act(ahead_fexpand, in_channels)
         self.fexpand1 = FeaExpand(expansion=self.fea_num, mode=self.mode, in_channels=in_channels, thres=thres)
         self.conv_3x3 = BLConv2d(in_channels * self.fea_num, in_channels, kernel_size=3, stride=stride, padding=1, bias=False, **kwargs)
-        self.nonlinear11 = self._build_act(nonlinear[0], in_channels)
+        self.nonlinear11 = build_act(nonlinear[0], in_channels)
         self.bn1 = nn.BatchNorm2d(in_channels)
-        self.nonlinear12 = self._build_act(nonlinear[1], in_channels)
-        self.shortcut2 = self._build_act(shortcut, out_channels)
-        self.ahead_fexpand2 = self._build_act(ahead_fexpand, in_channels)
+        self.nonlinear12 = build_act(nonlinear[1], in_channels)
+        self.shortcut2 = build_act(shortcut, out_channels)
+        self.ahead_fexpand2 = build_act(ahead_fexpand, in_channels)
         self.fexpand2 = FeaExpand(expansion=self.fea_num, mode=self.mode, in_channels=in_channels, thres=thres)
         self.conv_1x1 = BLConv2d(in_channels * self.fea_num, out_channels, kernel_size=1, stride=1, padding=0, bias=False, **kwargs)
-        self.nonlinear21 = self._build_act(nonlinear[0], out_channels)
+        self.nonlinear21 = build_act(nonlinear[0], out_channels)
         self.bn2 = nn.BatchNorm2d(out_channels)
-        self.nonlinear22 = self._build_act(nonlinear[1], out_channels)
+        self.nonlinear22 = build_act(nonlinear[1], out_channels)
 
     def _build_act(self, act_name, channels):
         if act_name == 'identity':

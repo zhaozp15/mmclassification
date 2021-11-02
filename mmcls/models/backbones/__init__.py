@@ -31,6 +31,7 @@ from .tnt import TNT
 from .twins import PCPVT, SVT
 from .vgg import VGG
 from .vision_transformer import VisionTransformer
+from .multifea import MultiFea
 from .mfnet import MFNet
 
 __all__ = [
@@ -74,4 +75,4 @@ __all__ = [
     'PoolFormer',
 ]
 
-__all__ += ['MFNet']
+__all__ += ['MultiFea', 'MFNet']
