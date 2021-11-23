@@ -9,7 +9,8 @@ from mmcv.runner import load_checkpoint
 
 from ..builder import BACKBONES
 from .base_backbone import BaseBackbone
-from .binary_utils.multifea_blocks import MF1Block, MF11Block, MF12Block, MF3Block, MF1s1Block, MF1s2Block, MF6Block, MF1terBlock, MF1LearnableBlock
+from .binary_utils.multifea_blocks import MF1Block, MF11Block, MF12Block, MF3Block, MF1s1Block, MF1s2Block, MF6Block, MF1terBlock, MF1SimBlock
+from .binary_utils.feature_expand import FeaExpand
 
 
 @BACKBONES.register_module()
@@ -38,7 +39,8 @@ class MFNet(BaseBackbone):
         'mf_6': (MF12Block, [[64, 2, 2], [128, 3, 2], [256, 9, 2], [512, 1, 1], [1024, 1, 2]]),
         'mf_6_mfg': (MF6Block, [[64, 2, 2], [128, 3, 2], [256, 9, 2], [512, 1, 1], [1024, 1, 2]]),
         'mf_5_ter': (MF1terBlock, [[64, 2, 2], [128, 5, 2], [256, 11, 2], [512, 1, 1], [1024, 1, 2]]),
-        'mf_4_sim': (MF1LearnableBlock, [[64, 2, 2], [128, 4, 2], [256, 8, 2], [512, 1, 1], [1024, 2, 2]]),
+        'mf_4_sim': (MF1SimBlock, [[64, 2, 2], [128, 4, 2], [256, 8, 2], [512, 1, 1], [1024, 2, 2]]),
+        'mf_2_sim': (MF1SimBlock, [[64, 2, 2], [128, 2, 2], [256, 3, 2], [512, 1, 1], [1024, 1, 2]]),
     }
 
     def __init__(self,
@@ -46,11 +48,13 @@ class MFNet(BaseBackbone):
                  binary_type=(True, False),
                  fea_num=2,
                  fexpand_mode='5',
-                 thres=(-0.55, 0.55),
+                 thres=(-0.6, 0.6),
                  block_act=('prelu', 'identity'),
                  shortcut_act='identity',
                  af_act='identity',
                  binary_type_cfg=None,
+                 freeze_weight=False,
+                 freeze_thres=False,
                  out_indices=(4,),
                  frozen_stages=-1,
                  conv_cfg=None,
@@ -77,6 +81,8 @@ class MFNet(BaseBackbone):
         assert num_stages >= 1 and num_stages <= 5
         self.out_indices = out_indices
         assert max(out_indices) < num_stages
+        self.freeze_weight = freeze_weight
+        self.freeze_thres = freeze_thres
         self.frozen_stages = frozen_stages
         self.conv_cfg = conv_cfg
         self.norm_cfg = norm_cfg
@@ -121,6 +127,8 @@ class MFNet(BaseBackbone):
                 in_channels = out_channels
         
         self._freeze_stages()
+        self._freeze_weight()
+        self._freeze_thres()
 
     def make_layer(self, out_channels, num_blocks, stride, binary_type=(True, False), **kwargs):
         layers = []
@@ -155,7 +163,7 @@ class MFNet(BaseBackbone):
         x = self.stem_bn(x)
 
         # only for compute cos_sim loss
-        if self.block == MF1LearnableBlock:
+        if self.block == MF1SimBlock:
             cos_sim = 0
             for layer in self.layers:
                 x, layer_cos_sim = layer(x)
@@ -181,6 +189,27 @@ class MFNet(BaseBackbone):
                 layer.eval()
                 for param in layer.parameters():
                     param.requires_grad = False
+
+    def _freeze_weight(self):
+        if not self.freeze_weight: return
+        self.stem_bn.eval()
+        for m in [self.stem_conv, self.stem_act, self.stem_bn]:
+            for param in m.parameters():
+                param.requires_grad = False
+        for layer in self.layers:
+            layer.eval()
+            for m in layer.modules():
+                if not isinstance(m, FeaExpand):
+                    for param in m.parameters():
+                        param.requires_grad = False
+    
+    def _freeze_thres(self):
+        if not self.freeze_thres: return
+        for layer in self.layers:
+            for m in layer.modules():
+                if isinstance(m, FeaExpand):
+                    for param in m.parameters():
+                        param.requires_grad = False
 
     def train(self, mode=True):
         super(MFNet, self).train(mode)
