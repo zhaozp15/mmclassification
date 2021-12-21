@@ -69,8 +69,8 @@ class FeaExpand(nn.Module):
         4s-a-n: 4s-a的每个阈值拥有自己的可学习系数的版本
         4sc-b: 输入特征图先经过分通道的可学习scale，再使用固定阈值
         5: 手动设置阈值
-        5re：专门针对expand为2的情况，将负阈值得到的结果乘-1
-        5-3：在5的基础上增加一份特征图，其中绝对值小的数映射为+1，绝对值大的映射为-1
+        5re: 专门针对expand为2的情况，将负阈值得到的结果乘-1
+        5-3: 在5的基础上增加一份特征图，其中绝对值小的数映射为+1，绝对值大的映射为-1
         5-mean: 以特征图的均值为轴对称应用手动设置的阈值
         5-bp: 将反向传播中不可能实现的情况的梯度置0
         6: 按照数值的个数均匀选择阈值，由直方图计算得到
@@ -80,15 +80,16 @@ class FeaExpand(nn.Module):
         8ab: 在8的基础上增加bn层和激活层，顺序为先激活后bn
         8ba: 在8的基础上增加bn层和激活层，顺序为先bn后激活
         82: 仅限于2张特征图，第1张不变，第2张使用conv计算得到
-        8bin：使用二值conv进行通道数扩增
+        8bin: 使用二值conv进行通道数扩增
         9-symmetric: 2个阈值通过余弦相似度得到单独的loss进行学习，2个阈值是对称的
         9-independent: 2个阈值是独立的
+        10-symmetric: 可学习阈值，初始值通过thres传入，2个阈值是对称的
     """
     def __init__(self, expansion=3, mode='1', in_channels=None, thres=None):
         super(FeaExpand, self).__init__()
         self.expansion = expansion
         self.mode = mode
-        if '1' in self.mode:
+        if '1' == self.mode or '1c' == self.mode or '1c-m' == self.mode or '1nc-m' == self.mode:
             self.alpha = [-1 + (i + 1) * 2 / (expansion + 1) for i in range(expansion)]
 
         elif '3' == self.mode or '3n' == self.mode or '3c' == self.mode or '3nc' == self.mode or '6' in self.mode:
@@ -199,6 +200,11 @@ class FeaExpand(nn.Module):
             self.lb2 = nn.Parameter(torch.ones(1, 1, 1, 1) * init2, requires_grad=True)
             self.sign1 = RANetActSign()
             self.sign2 = RANetActSign()
+        
+        elif '10-symmetric' == self.mode:
+            init = thres[0]
+            # learnable_thres
+            self.thres = nn.Parameter(torch.ones(1, 1, 1, 1) * init, requires_grad=True)
 
     def bin_id_to_thres(self, bins, bin_id, low, high):
         interval = (high - low) / bins
@@ -402,6 +408,9 @@ class FeaExpand(nn.Module):
             out = torch.cat((fea1, fea2), dim=1)
 
             return cos_sim, out
+        
+        elif '10-symmetric' == self.mode:
+            out = [x + self.thres, x - self.thres]
         
         
         return torch.cat(out, dim=1)

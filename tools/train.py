@@ -3,6 +3,7 @@ import argparse
 import copy
 import os
 import os.path as osp
+from sys import base_prefix
 import time
 import warnings
 
@@ -14,6 +15,7 @@ from mmcv.runner import get_dist_info, init_dist
 
 from mmcls import __version__
 from mmcls.apis import init_random_seed, set_random_seed, train_model
+from mmcls.apis import train_model_bilevel
 from mmcls.datasets import build_dataset
 from mmcls.models import build_classifier
 from mmcls.utils import collect_env, get_root_logger, setup_multi_processes
@@ -73,7 +75,15 @@ def parse_args():
         choices=['none', 'pytorch', 'slurm', 'mpi'],
         default='none',
         help='job launcher')
-    parser.add_argument('--local-rank', type=int, default=0)
+    parser.add_argument('--local_rank', type=int, default=0)
+    parser.add_argument(
+        '--bilevel',
+        action='store_true',
+        help='whether not to use bilevel training')
+    parser.add_argument(
+        '--half-dataset',
+        action='store_true',
+        help='whether not to use half of the training dataset')
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -165,6 +175,14 @@ def main():
     model.init_weights()
 
     datasets = [build_dataset(cfg.data.train)]
+    if args.half_dataset:
+        n_train = len(datasets[0])
+        n_half = n_train // 2
+        # 指选择一半的数据集样本用于训练
+        half_datasets = list(torch.utils.data.random_split(
+            datasets[0], [n_half, n_train - n_half], generator=torch.Generator().manual_seed(33)))
+        half_datasets.pop(-1)
+
     if len(cfg.workflow) == 2:
         val_dataset = copy.deepcopy(cfg.data.val)
         val_dataset.pipeline = cfg.data.train.pipeline
@@ -179,9 +197,12 @@ def main():
             CLASSES=datasets[0].CLASSES))
 
     # add an attribute for visualization convenience
-    train_model(
+
+    # 判断使用原始训练函数还是bilevel训练函数
+    train_method = train_model_bilevel if args.bilevel else train_model
+    train_method(
         model,
-        datasets,
+        datasets if not args.half_dataset else half_datasets,
         cfg,
         distributed=distributed,
         validate=(not args.no_validate),
