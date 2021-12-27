@@ -133,6 +133,8 @@ def train_model_bilevel(model,
 
     # In bilevel optimiation, we directly optimize parameters in runner.run_iter function
     # without using optimizer hook
+    # 双层规划中参数优化过程写在了runner.run_iter中
+    # 不需要使用optimizer hook
     if cfg.get('optimizer_config', None) is None:
         optimizer_config = None
     elif fp16_cfg is not None:

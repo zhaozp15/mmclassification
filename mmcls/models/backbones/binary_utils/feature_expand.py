@@ -84,333 +84,69 @@ class FeaExpand(nn.Module):
         9-symmetric: 2个阈值通过余弦相似度得到单独的loss进行学习，2个阈值是对称的
         9-independent: 2个阈值是独立的
         10-symmetric: 可学习阈值，初始值通过thres传入，2个阈值是对称的
+        10c-symmetric: 在10-symmetric的基础上分通道
     """
+
     def __init__(self, expansion=3, mode='1', in_channels=None, thres=None):
         super(FeaExpand, self).__init__()
         self.expansion = expansion
         self.mode = mode
-        if '1' == self.mode or '1c' == self.mode or '1c-m' == self.mode or '1nc-m' == self.mode:
-            self.alpha = [-1 + (i + 1) * 2 / (expansion + 1) for i in range(expansion)]
+        self.in_channels = in_channels
+        self.thres = thres
 
-        elif '3' == self.mode or '3n' == self.mode or '3c' == self.mode or '3nc' == self.mode or '6' in self.mode:
-            self.alpha = [(i + 1) / (expansion + 1) for i in range(expansion)]
-            self.ppf_alpha = [norm.ppf(alpha) for alpha in self.alpha]
+        self.mode_methods = {
+            '1': (self.init_1, self.forward_1),
+            '5': (self.init_5, self.forward_5),
+            '10-symmetric': (self.init_10_symmetric, self.forward_10_symmetric),
+            '10c-symmetric': (self.init_10c_symmetric, self.forward_10_symmetric),
+        }
 
-        elif '4' == self.mode:
-            self.move = nn.ModuleList()
-            for i in range(expansion):
-                if thres == None:
-                    alpha = -1 + (i + 1) * 2 / (expansion + 1)
-                else:
-                    alpha = thres[i]
-                self.move.append(LearnableBias(channels=1, init=alpha))
-
-        elif '4c' == self.mode:
-            self.move = nn.ModuleList()
-            for i in range(expansion):
-                alpha = -1 + (i + 1) * 2 / (expansion + 1)
-                self.move.append(LearnableBias(in_channels, init=alpha))
-        
-        elif '4g' in self.mode:
-            groups = int(self.mode.split('g')[-1])
-            self.move = nn.ModuleList()
-            for i in range(expansion):
-                alpha = -1 + (i + 1) * 2 / (expansion + 1)
-                self.move.append(LearnableBias(in_channels, init=alpha, groups=groups))
-        
-        elif '4-1' == self.mode:
-            self.move = nn.ModuleList()
-            for i in range(expansion):
-                alpha = -1 + (i + 1) * 2 / (expansion + 1)
-                self.move.append(LearnableBias(channels=1, init=alpha))
-        
-        elif '4s-a' == self.mode:
-            assert len(thres) == expansion
-            self.thres = thres
-            self.thres_alpha = nn.Parameter(torch.zeros(1, 1, 1, 1), requires_grad=True)
-        
-        elif '4sc-a' == self.mode:
-            assert len(thres) == expansion
-            self.thres = thres
-            self.thres_alpha = nn.Parameter(torch.zeros(1, in_channels, 1, 1), requires_grad=True)
-        
-        elif '4s-a-n' == self.mode:
-            assert len(thres) == expansion
-            self.thres = thres
-            self.thres_alpha = nn.ParameterList()
-            for i in range(expansion):
-                self.thres_alpha.append(nn.Parameter(torch.zeros(1, 1, 1, 1), requires_grad=True))
-        
-        elif '4sc-b' == self.mode:
-            assert in_channels != None
-            assert len(thres) == expansion
-            self.thres = thres
-            self.scale = LearnableScale(in_channels)
-
-        elif '5' == self.mode or '5re' == self.mode:
-            assert len(thres) == expansion
-            self.thres = thres
-        
-        elif '5-3' == self.mode or '5-mean' == self.mode or '5-bp' == self.mode:
-            assert len(thres) == 2
-            self.thres = thres
-        
-        elif '7' == self.mode:
-            pass
-            # self.scale = nn.Parameter(torch.ones(n, c, h, w), requires_grad=True)
-            # self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-            # self.linear1 = nn.Linear(in_channels, in_channels, bias=True)
-            # self.linear1 = nn.Linear(in_channels, in_channels, bias=True)
-            # self.tanh = nn.Tanh()
-        
-        elif '8' == self.mode:
-            out_channels = in_channels * expansion
-            self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, bias=False)
-        
-        elif '8b' == self.mode:
-            out_channels = in_channels * expansion
-            self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, bias=False)
-            self.bn = nn.BatchNorm2d(out_channels)
-        
-        elif '8ab' == self.mode or '8ba' == self.mode:
-            out_channels = in_channels * expansion
-            self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, bias=False)
-            self.activate = nn.PReLU(out_channels)
-            self.bn = nn.BatchNorm2d(out_channels)
-        
-        elif '82' == self.mode:
-            assert expansion == 2
-            self.conv = nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1, bias=False)
-        
-        elif '8bin' == self.mode:
-            out_channels = in_channels * expansion
-            self.conv = BLConv2d(in_channels, out_channels, kernel_size=1, stride=1, bias=False, binary_type=(True, False))
-        
-        elif '9-symmetric' == self.mode:
-            init = thres[0]
-            # learnable_bias
-            self.lb = nn.Parameter(torch.ones(1, 1, 1, 1) * init, requires_grad=True)
-            self.sign1 = RANetActSign()
-            self.sign2 = RANetActSign()
-        
-        elif '9-independent' == self.mode:
-            init1 = thres[0]
-            init2 = thres[1]
-            self.lb1 = nn.Parameter(torch.ones(1, 1, 1, 1) * init1, requires_grad=True)
-            self.lb2 = nn.Parameter(torch.ones(1, 1, 1, 1) * init2, requires_grad=True)
-            self.sign1 = RANetActSign()
-            self.sign2 = RANetActSign()
-        
-        elif '10-symmetric' == self.mode:
-            init = thres[0]
-            # learnable_thres
-            self.thres = nn.Parameter(torch.ones(1, 1, 1, 1) * init, requires_grad=True)
-
-    def bin_id_to_thres(self, bins, bin_id, low, high):
-        interval = (high - low) / bins
-        thres_low = interval / 2 + low
-        thres_high = high - interval / 2
-        thres = [thres_low + id * interval for id in bin_id]
-        while 1:
-            if len(thres) < 3:
-                thres.append(thres_high)
-            else:
-                break
-        # breakpoint()
-        return torch.tensor(thres).cuda()
-
-    def compute_thres(self, fea, bins=20):
-        hist = fea.histc(bins=bins)
-        fea_num = fea.numel()
-        alpha_index = 0
-        sum = 0
-        bin_id = []
-        for i in range(bins):
-            if alpha_index >= self.expansion:
-                break
-            sum = sum + hist[i]
-            if sum >= fea_num * self.alpha[alpha_index]:
-                bin_id.append(i)
-                alpha_index += 1
-        thres = self.bin_id_to_thres(bins, bin_id, fea.min(), fea.max())
-        return thres
+        try:
+            # 根据mode设定需要的成员变量
+            self.mode_methods[mode][0]()
+        except KeyError:
+            print(f"init method of mode {self.mode} isn't implenment")
 
     def forward(self, x):
         if self.expansion == 1 and self.mode != '5':
             return x
 
-        out = []
-        if '1' == self.mode:
-            x_max = x.abs().max()
-            out = [x + alpha * x_max for alpha in self.alpha]
-
-        elif '1c' == self.mode:
-            # amin is supported by pytorch 1.8.1
-            x_max = x.abs().amax(dim=(0, 2, 3), keepdim=True)
-            out = [x + alpha * x_max for alpha in self.alpha]
-
-        elif '1c-m' == self.mode:
-            # amin and amax are supported by pytorch 1.8.1
-            x_min = x.amin(dim=(0, 2, 3), keepdim=True)
-            x_max = x.amax(dim=(0, 2, 3), keepdim=True)
-            out = [x + ((alpha + 1) / 2 * (x_max - x_min) + x_min) for alpha in self.alpha]
-
-        elif '1nc-m' == self.mode:
-            # amin and amax are supported by pytorch 1.8.1
-            x_min = x.amin(dim=(2, 3), keepdim=True)
-            x_max = x.amax(dim=(2, 3), keepdim=True)
-            out = [x + ((alpha + 1) / 2 * (x_max - x_min) + x_min) for alpha in self.alpha]
-
-        elif '2' == self.mode:
-            bias = x.abs().max() / 2
-            out.append(x)
-            out.append(-x.abs() + bias)
-
-        elif '3' == self.mode:
-            mean = x.mean().item()
-            std = x.std().item()
-            out = [x + (a * std + mean) for a in self.ppf_alpha]
-
-        elif '3n' == self.mode:
-            mean = x.mean(dim=(1, 2, 3), keepdim=True)
-            std = x.std(dim=(1, 2, 3), keepdim=True)
-            out = [x + (a * std + mean) for a in self.ppf_alpha]
-
-        elif '3c' == self.mode:
-            mean = x.mean(dim=(0, 2, 3), keepdim=True)
-            std = x.std(dim=(0, 2, 3), keepdim=True)
-            out = [x + (a * std + mean) for a in self.ppf_alpha]
-
-        elif '3nc' == self.mode:
-            mean = x.mean(dim=(2, 3), keepdim=True)
-            std = x.std(dim=(2, 3), keepdim=True)
-            out = [x + (a * std + mean) for a in self.ppf_alpha]
-
-        elif '4' == self.mode or '4c' == self.mode:
-            out = [self.move[i](x) for i in range(self.expansion)]
-        
-        elif '4s-a' == self.mode or '4sc-a' == self.mode:
-            # thres = thres * 2 * sigmoid(alpha)
-            # alpha is the learnalbe parameter
-            thres_scale = torch.sigmoid(self.thres_alpha) * 2
-            out = [x + t * thres_scale for t in self.thres]
-        
-        elif '4s-a-n' == self.mode:
-            thres_scale = [torch.sigmoid(ta) * 2 for ta in self.thres_alpha]
-            out = [x + t * s for t, s in zip(self.thres, thres_scale)]
-        
-        elif '4sc-b' == self.mode:
-            x = self.scale(x)
-            out = [x + t for t in self.thres]
-
-        elif '5' == self.mode:
-            out = [x + t for t in self.thres]
-        
-        elif '5re' == self.mode:
-            assert self.expansion == 2
-            out = [x + t for t in self.thres]
-            out[1] *= -1
-        
-        elif '5-3' == self.mode:
-            out = [x + t for t in self.thres]
-            out.append(x.abs() * -1 + abs(self.thres[0]))
-        
-        elif '5-mean' == self.mode:
-            mean = x.mean(dim=(2, 3), keepdim=True)
-            out = [x - mean + t for t in self.thres]
-        
-        elif '5-bp' == self.mode:
-            out = CopyBias2_1().apply(x, self.thres)
-
-        elif '6' == self.mode:
-            thres = self.compute_thres(x)
-            out = [x + t for t in thres]
-
-        elif '6n' == self.mode:
-            n = x.size(0)
-            thres_n = [self.compute_thres(x_n) for x_n in x]
-            thres_n_tensor = torch.stack(thres_n)
-            thres_n_tensor = thres_n_tensor.T.reshape((self.expansion, n, 1, 1, 1))
-            out = [x + t for t in thres_n_tensor]
-        
-        elif '6c' == self.mode:
-            c = x.size(1)
-            thres_c = [self.compute_thres(x_c) for x_c in x.transpose(0, 1)]
-            thres_c_tensor = torch.stack(thres_c)
-            thres_c_tensor = thres_c_tensor.T.reshape((self.expansion, 1, c, 1, 1))
-            out = [x + t for t in thres_c_tensor]
-        
-        elif '6nc' == self.mode:
-            n, c, h, w = x.shape
-            thres_nc = [self.compute_thres(x_nc) for x_nc in x.reshape(n * c , h, w)]
-            thres_nc_tensor = torch.stack(thres_nc)
-            thres_nc_tensor = thres_nc_tensor.T.reshape((self.expansion, n, c, 1, 1))
-            out = [x + t for t in thres_nc_tensor]
-        
-        elif '72' == self.mode:
-            bias = x * self.scale
-            bias = self.avgpool(bias)
-            bias = self.linear1(bias)
-            bias = self.tanh(bias)
-        
-        elif '8' == self.mode or '8bin' == self.mode:
-            out = self.conv(x)
-            return out
-        
-        elif '8b' == self.mode:
-            out = self.conv(x)
-            out = self.bn(out)
-            return out
-        
-        elif '8ab' == self.mode:
-            out = self.conv(x)
-            out = self.activate(out)
-            out = self.bn(out)
-            return out
-        
-        elif '8ba' == self.mode:
-            out = self.conv(x)
-            out = self.bn(out)
-            out = self.activate(out)
-            return out
-
-        elif '82' == self.mode:
-            out.append(x)
-            out2 = self.conv(x)
-            out.append(out2)
-        
-        elif '9-symmetric' == self.mode:
-            N = x.shape[0]
-            C = x.shape[1]
-            x_detach = x.detach()
-            fea_bin1 = self.sign1(x_detach - self.lb).reshape(N, C, -1)
-            fea_bin2 = self.sign2(x_detach + self.lb).reshape(N, C, -1)
-            cos_sim = F.cosine_similarity(fea_bin1, fea_bin2, dim=2)
-            cos_sim = cos_sim.abs().sum() / N
-
-            fea1 = x - self.lb.detach()
-            fea2 = x + self.lb.detach()
-            out = torch.cat((fea1, fea2), dim=1)
-
-            return cos_sim, out
-        
-        elif '9-independent' == self.mode:
-            N = x.shape[0]
-            C = x.shape[1]
-            x_detach = x.detach()
-            fea_bin1 = self.sign1(x_detach + self.lb1).reshape(N, C, -1)
-            fea_bin2 = self.sign2(x_detach + self.lb2).reshape(N, C, -1)
-            cos_sim = F.cosine_similarity(fea_bin1, fea_bin2, dim=2)
-            cos_sim = cos_sim.abs().sum() / N
-
-            fea1 = x + self.lb1.detach()
-            fea2 = x + self.lb2.detach()
-            out = torch.cat((fea1, fea2), dim=1)
-
-            return cos_sim, out
-        
-        elif '10-symmetric' == self.mode:
-            out = [x + self.thres, x - self.thres]
-        
-        
+        try:
+            # 根据mode执行前传过程，返回值是一个张量列表
+            out = self.mode_methods[self.mode][1](x)
+        except KeyError:
+            print(f"forward method of mode {self.mode} isn't implenment")
+              
         return torch.cat(out, dim=1)
+
+    # '1'
+    def init_1(self):
+        self.alpha = [-1 + (i + 1) * 2 / (self.expansion + 1) for i in range(self.expansion)]
+    
+    def forward_1(self, x):
+        x_max = x.abs().max()
+        out = [x + alpha * x_max for alpha in self.alpha]
+        return out
+    
+    # '5'
+    def init_5(self):
+        assert len(self.thres) == self.expansion
+    
+    def forward_5(self, x):
+        return [x + t for t in self.thres]
+
+    # '10-symmetric'
+    def init_10_symmetric(self):
+        init = self.thres[0]
+        # learnable_thres
+        self.lt = nn.Parameter(torch.ones(1, 1, 1, 1) * init, requires_grad=True)
+    
+    def forward_10_symmetric(self, x):
+        out = [x + self.lt, x - self.lt]
+        return out
+    
+    # '10c-symmetric'
+    def init_10c_symmetric(self):
+        init = self.thres[0]
+        # learnable_thres
+        self.lt = nn.Parameter(torch.ones(1, self.in_channels, 1, 1) * init, requires_grad=True)
