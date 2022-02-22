@@ -97,8 +97,10 @@ class FeaExpand(nn.Module):
         self.mode_methods = {
             '1': (self.init_1, self.forward_1),
             '5': (self.init_5, self.forward_5),
+            '9-symmetric': (self.init_9_symmetric, self.forward_9_symmetric),
             '10-symmetric': (self.init_10_symmetric, self.forward_10_symmetric),
             '10c-symmetric': (self.init_10c_symmetric, self.forward_10_symmetric),
+            '10sim-symmetric': (self.init_9_symmetric, self.forward_10sim_symmetric),
         }
 
         try:
@@ -112,12 +114,17 @@ class FeaExpand(nn.Module):
             return x
 
         try:
-            # 根据mode执行前传过程，返回值是一个张量列表
+            # 根据mode执行前传过程，要求返回值是一个张量列表
+            # 或者返回元组的最后一个元素是张量列表
             out = self.mode_methods[self.mode][1](x)
+            
         except KeyError:
             print(f"forward method of mode {self.mode} isn't implenment")
               
-        return torch.cat(out, dim=1)
+        if isinstance(out, list):
+            return torch.cat(out, dim=1)
+        else:
+            return tuple(out[:-1]) + (torch.cat(out[-1], dim=1), )
 
     # '1'
     def init_1(self):
@@ -135,6 +142,28 @@ class FeaExpand(nn.Module):
     def forward_5(self, x):
         return [x + t for t in self.thres]
 
+    # '9-symmetric'
+    def init_9_symmetric(self):
+        init = self.thres[0]
+        # learnable_thres
+        self.lt = nn.Parameter(torch.ones(1, 1, 1, 1) * init, requires_grad=True)
+        self.sign1 = RANetActSign()
+        self.sign2 = RANetActSign()
+    
+    def forward_9_symmetric(self, x):
+        N = x.shape[0]
+        C = x.shape[1]
+        x_detach = x.detach()
+        fea_bin1 = self.sign1(x_detach + self.lt).reshape(N, C, -1)
+        fea_bin2 = self.sign2(x_detach - self.lt).reshape(N, C, -1)
+        cos_sim = F.cosine_similarity(fea_bin1, fea_bin2, dim=2)
+        cos_sim = cos_sim.abs().sum() / N
+
+        fea1 = x + self.lt.detach()
+        fea2 = x - self.lt.detach()
+        out = [fea1, fea2]
+        return cos_sim, out
+
     # '10-symmetric'
     def init_10_symmetric(self):
         init = self.thres[0]
@@ -150,3 +179,15 @@ class FeaExpand(nn.Module):
         init = self.thres[0]
         # learnable_thres
         self.lt = nn.Parameter(torch.ones(1, self.in_channels, 1, 1) * init, requires_grad=True)
+    
+    # '10sim-symmetric'
+    def forward_10sim_symmetric(self, x):
+        N = x.shape[0]
+        C = x.shape[1]
+        fea_bin1 = self.sign1(x + self.lt).reshape(N, C, -1)
+        fea_bin2 = self.sign2(x - self.lt).reshape(N, C, -1)
+        cos_sim = F.cosine_similarity(fea_bin1, fea_bin2, dim=2)
+        cos_sim = cos_sim.abs().sum() / N
+
+        out = [x + self.lt, x - self.lt]
+        return cos_sim, out

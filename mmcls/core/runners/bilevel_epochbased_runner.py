@@ -44,6 +44,33 @@ def parse_losses(losses):
 
     return loss, log_vars
 
+def parse_losses_sim(losses):
+    log_vars = OrderedDict()
+    for loss_name, loss_value in losses.items():
+        if isinstance(loss_value, torch.Tensor):
+            log_vars[loss_name] = loss_value.mean()
+        elif isinstance(loss_value, list):
+            log_vars[loss_name] = sum(_loss.mean() for _loss in loss_value)
+        elif isinstance(loss_value, dict):
+            for name, value in loss_value.items():
+                log_vars[name] = value
+        else:
+            raise TypeError(
+                f'{loss_name} is not a tensor or list of tensors')
+
+    # 计算包含特征相似度的loss
+    loss = log_vars['loss_cls'] + log_vars['sim']
+
+    log_vars['loss'] = loss
+    for loss_name, loss_value in log_vars.items():
+        # reduce loss when distributed training
+        if dist.is_available() and dist.is_initialized():
+            loss_value = loss_value.data.clone()
+            dist.all_reduce(loss_value.div_(dist.get_world_size()))
+        log_vars[loss_name] = loss_value.item()
+
+    return loss, log_vars
+
 def get_weights(model):
     for name, param in model.named_parameters():
         if '.thres' not in name:
@@ -110,13 +137,15 @@ class Architect():
         self.virtual_step(trn_X, trn_y, xi, w_optim)
 
         # calc unrolled loss
-        # loss = self.v_net.loss(val_X, val_y) # L_val(w`)
+        # loss = self.v_net.loss(val_X, val_y)
+        # # L_val(w`)
         losses = self.v_net(img=val_X, gt_label=val_y)
-        loss, _ = parse_losses(losses)
+        loss, _ = parse_losses_sim(losses)
 
         # compute gradient
         v_alphas = tuple(get_thres(self.v_net))
         v_weights = tuple(get_weights(self.v_net))
+        # breakpoint()
         v_grads = torch.autograd.grad(loss, v_alphas + v_weights)
         dalpha = v_grads[:len(v_alphas)]
         dw = v_grads[len(v_alphas):]
@@ -178,8 +207,8 @@ class BilevelEpochBasedRunner(EpochBasedRunner):
             #     self.model, data_batch, train_mode=train_mode, **kwargs)
         elif train_mode:
             # breakpoint()
-            self.optimizer['thres'].zero_grad()
             # 优化阈值
+            self.optimizer['thres'].zero_grad()
             self.architect.unrolled_backward(train_data_batch['img'], train_data_batch['gt_label'],
                                              val_data_batch['img'], val_data_batch['gt_label'],
                                              self.optimizer['weight'].param_groups[0]['lr'], self.optimizer['weight'])
