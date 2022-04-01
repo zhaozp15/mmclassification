@@ -104,6 +104,7 @@ def train_model_bilevel(model,
             raise ValueError(F'unsupported device name {device}.')
 
     # build runner
+    # 分别生成权重和阈值的优化器
     optimizer = build_optimizers(model, cfg.optimizer)
 
     if cfg.get('runner') is None:

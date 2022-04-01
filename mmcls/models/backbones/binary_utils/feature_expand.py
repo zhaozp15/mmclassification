@@ -151,6 +151,7 @@ class FeaExpand(nn.Module):
         self.sign2 = RANetActSign()
     
     def forward_9_symmetric(self, x):
+        # 单独复制出特征图用于计算相似度loss
         N = x.shape[0]
         C = x.shape[1]
         x_detach = x.detach()

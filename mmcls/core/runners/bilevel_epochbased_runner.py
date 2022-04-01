@@ -140,7 +140,7 @@ class Architect():
         # loss = self.v_net.loss(val_X, val_y)
         # # L_val(w`)
         losses = self.v_net(img=val_X, gt_label=val_y)
-        loss, _ = parse_losses_sim(losses)
+        loss, _ = parse_losses(losses)
 
         # compute gradient
         v_alphas = tuple(get_thres(self.v_net))
