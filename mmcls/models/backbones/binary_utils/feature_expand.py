@@ -90,7 +90,9 @@ class FeaExpand(nn.Module):
         11b: loss_sim只与thres相关，loss_cls与thres和weight都相关
              loss_sim = f(thres)  loss_cls = f(weight, thres)
         11c: loss_sim和loss_cls与weight和thres都相关
-             loss_sim = f(weight, thres)  loss_cls = f(weight, thres) 
+             loss_sim = f(weight, thres)  loss_cls = f(weight, thres)
+        11d: loss_sim与thres和weight都相关，loss_cls只与weight相关
+             loss_sim = f(weight, thres)  loss_cls = f(weight)
     """
 
     def __init__(self, expansion=3, mode='1', in_channels=None, thres=None):
@@ -106,7 +108,10 @@ class FeaExpand(nn.Module):
             '9-symmetric': (self.init_9_symmetric, self.forward_9_symmetric),
             '10-symmetric': (self.init_10_symmetric, self.forward_10_symmetric),
             '10c-symmetric': (self.init_10c_symmetric, self.forward_10_symmetric),
-            '10sim-symmetric': (self.init_9_symmetric, self.forward_10sim_symmetric),
+            '11a': (self.init_9_symmetric, self.forward_11a),
+            '11b': (self.init_9_symmetric, self.forward_11b),
+            '11c': (self.init_9_symmetric, self.forward_11c),
+            '11d': (self.init_9_symmetric, self.forward_11d),
         }
 
         try:
@@ -187,8 +192,38 @@ class FeaExpand(nn.Module):
         # learnable_thres
         self.lt = nn.Parameter(torch.ones(1, self.in_channels, 1, 1) * init, requires_grad=True)
     
-    # '10sim-symmetric'
-    def forward_10sim_symmetric(self, x):
+    # '11a': 特征和阈值都detach
+    def forward_11a(self, x):
+        # 单独复制出特征图用于计算相似度loss
+        N = x.shape[0]
+        C = x.shape[1]
+        x_detach = x.detach()
+        fea_bin1 = self.sign1(x_detach + self.lt).reshape(N, C, -1)
+        fea_bin2 = self.sign2(x_detach - self.lt).reshape(N, C, -1)
+        cos_sim = F.cosine_similarity(fea_bin1, fea_bin2, dim=2)
+        cos_sim = cos_sim.abs().sum() / N
+
+        fea1 = x + self.lt.detach()
+        fea2 = x - self.lt.detach()
+        out = [fea1, fea2]
+        return cos_sim, out
+
+    # '11b': 特征detach，阈值不detach
+    def forward_11b(self, x):
+        # 单独复制出特征图用于计算相似度loss
+        N = x.shape[0]
+        C = x.shape[1]
+        x_detach = x.detach()
+        fea_bin1 = self.sign1(x_detach + self.lt).reshape(N, C, -1)
+        fea_bin2 = self.sign2(x_detach - self.lt).reshape(N, C, -1)
+        cos_sim = F.cosine_similarity(fea_bin1, fea_bin2, dim=2)
+        cos_sim = cos_sim.abs().sum() / N
+
+        out = [x + self.lt, x - self.lt]
+        return cos_sim, out
+    
+    # '11c': 特征和阈值都不detach
+    def forward_11c(self, x):
         N = x.shape[0]
         C = x.shape[1]
         fea_bin1 = self.sign1(x + self.lt).reshape(N, C, -1)
@@ -197,4 +232,19 @@ class FeaExpand(nn.Module):
         cos_sim = cos_sim.abs().sum() / N
 
         out = [x + self.lt, x - self.lt]
+        return cos_sim, out
+
+    # '11d': 特征不detach，阈值detach
+    def forward_11d(self, x):
+        # 单独复制出特征图用于计算相似度loss
+        N = x.shape[0]
+        C = x.shape[1]
+        fea_bin1 = self.sign1(x + self.lt).reshape(N, C, -1)
+        fea_bin2 = self.sign2(x - self.lt).reshape(N, C, -1)
+        cos_sim = F.cosine_similarity(fea_bin1, fea_bin2, dim=2)
+        cos_sim = cos_sim.abs().sum() / N
+
+        fea1 = x + self.lt.detach()
+        fea2 = x - self.lt.detach()
+        out = [fea1, fea2]
         return cos_sim, out
