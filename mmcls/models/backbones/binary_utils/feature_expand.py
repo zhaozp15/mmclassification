@@ -85,6 +85,12 @@ class FeaExpand(nn.Module):
         9-independent: 2个阈值是独立的
         10-symmetric: 可学习阈值，初始值通过thres传入，2个阈值是对称的
         10c-symmetric: 在10-symmetric的基础上分通道
+        11a: loss_sim只与thres相关，loss_cls只与weight相关
+             loss_sim = f(thres)  loss_cls = f(weight)
+        11b: loss_sim只与thres相关，loss_cls与thres和weight都相关
+             loss_sim = f(thres)  loss_cls = f(weight, thres)
+        11c: loss_sim和loss_cls与weight和thres都相关
+             loss_sim = f(weight, thres)  loss_cls = f(weight, thres) 
     """
 
     def __init__(self, expansion=3, mode='1', in_channels=None, thres=None):

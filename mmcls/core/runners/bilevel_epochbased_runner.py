@@ -17,7 +17,7 @@ from mmcv.runner.utils import get_host_info
 from torch.utils import data
 
 
-def parse_losses(losses):
+def parse_losses(losses, use_sim=False):
     log_vars = OrderedDict()
     for loss_name, loss_value in losses.items():
         if isinstance(loss_value, torch.Tensor):
@@ -31,35 +31,12 @@ def parse_losses(losses):
             raise TypeError(
                 f'{loss_name} is not a tensor or list of tensors')
 
-    loss = sum(_value for _key, _value in log_vars.items()
-               if 'loss' in _key)
-
-    log_vars['loss'] = loss
-    for loss_name, loss_value in log_vars.items():
-        # reduce loss when distributed training
-        if dist.is_available() and dist.is_initialized():
-            loss_value = loss_value.data.clone()
-            dist.all_reduce(loss_value.div_(dist.get_world_size()))
-        log_vars[loss_name] = loss_value.item()
-
-    return loss, log_vars
-
-def parse_losses_sim(losses):
-    log_vars = OrderedDict()
-    for loss_name, loss_value in losses.items():
-        if isinstance(loss_value, torch.Tensor):
-            log_vars[loss_name] = loss_value.mean()
-        elif isinstance(loss_value, list):
-            log_vars[loss_name] = sum(_loss.mean() for _loss in loss_value)
-        elif isinstance(loss_value, dict):
-            for name, value in loss_value.items():
-                log_vars[name] = value
-        else:
-            raise TypeError(
-                f'{loss_name} is not a tensor or list of tensors')
-
-    # 计算包含特征相似度的loss
-    loss = log_vars['loss_cls'] + log_vars['sim']
+    if use_sim and 'sim' in log_vars.keys():
+        loss = log_vars['loss_cls'] + log_vars['sim']
+    else:
+        loss = sum(_value for _key, _value in log_vars.items()
+                   if 'loss' in _key)
+        
 
     log_vars['loss'] = loss
     for loss_name, loss_value in log_vars.items():
@@ -73,12 +50,12 @@ def parse_losses_sim(losses):
 
 def get_weights(model):
     for name, param in model.named_parameters():
-        if '.thres' not in name:
+        if '.lt' not in name:
             yield param
 
 def get_thres(model):
     for name, param in model.named_parameters():
-        if '.thres' in name:
+        if '.lt' in name:
             yield param
 
 class Architect():
@@ -140,7 +117,7 @@ class Architect():
         # loss = self.v_net.loss(val_X, val_y)
         # # L_val(w`)
         losses = self.v_net(img=val_X, gt_label=val_y)
-        loss, _ = parse_losses(losses)
+        loss, _ = parse_losses(losses, use_sim=True)
 
         # compute gradient
         v_alphas = tuple(get_thres(self.v_net))
