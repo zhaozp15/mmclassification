@@ -136,9 +136,11 @@ class MultiFea(BaseBackbone):
         self.layers = nn.ModuleList()
         _in_channels = stem_channels
         _out_channels = base_channels
+        # 对每个stage循环
         for i, num_blocks in enumerate(self.stage_blocks):
             stride = strides[i]
             dilation = dilations[i]
+            # 对当前stage中的每个block循环
             for j in range(num_blocks):
                 if j >= 1: stride = 1
                 if stride != 1 or _in_channels != _out_channels:
@@ -160,6 +162,7 @@ class MultiFea(BaseBackbone):
                         **kwargs
                     ))
                 _in_channels = _out_channels
+            # 下一个stage的输出通道数翻倍
             _out_channels *= 2
 
         self._freeze_stages()

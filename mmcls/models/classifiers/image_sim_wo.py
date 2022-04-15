@@ -13,7 +13,11 @@ warnings.simplefilter('once')
 
 
 @CLASSIFIERS.register_module()
-class BilevelImageClassifier(ImageClassifier):
+class ImageClassifierSimWO(ImageClassifier):
+    '''
+    ImageClassifierSim中相似度命名为loss_sim，会被_parse_losses默认算作总loss的一部分
+    ImageClassifierSimWO中相似度命名为为sim，不会被默认算入总loss中
+    '''
 
     def __init__(self,
                  backbone,
@@ -23,7 +27,7 @@ class BilevelImageClassifier(ImageClassifier):
                  pretrained=None,
                  train_cfg=None,
                  init_cfg=None):
-        super(BilevelImageClassifier, self).__init__(backbone, neck, head, 
+        super(ImageClassifierSimWO, self).__init__(backbone, neck, head, 
                                                  pretrained, train_cfg, init_cfg)
         self.loss_sim_weight = loss_sim.loss_weight
 

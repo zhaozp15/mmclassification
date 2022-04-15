@@ -3,8 +3,8 @@ from .base import BaseClassifier
 from .image import ImageClassifier
 from .distiller import DistillingImageClassifier
 from .image_sim import ImageClassifierSim
-from .bilevel_image import BilevelImageClassifier
+from .image_sim_wo import ImageClassifierSimWO
 
 __all__ = ['BaseClassifier', 'ImageClassifier']
 
-__all__ += ['DistillingImageClassifier', 'ImageClassifierSim', 'BilevelImageClassifier']
+__all__ += ['DistillingImageClassifier', 'ImageClassifierSim', 'ImageClassifierSimWO']
