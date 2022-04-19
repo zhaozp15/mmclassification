@@ -31,8 +31,9 @@ from .tnt import TNT
 from .twins import PCPVT, SVT
 from .vgg import VGG
 from .vision_transformer import VisionTransformer
-from .multifea import MultiFea
-from .mfnet import MFNet
+from .bnn import *
+# from .multifea import MultiFea
+# from .mfnet import MFNet
 
 __all__ = [
     'LeNet5',
@@ -75,4 +76,6 @@ __all__ = [
     'PoolFormer',
 ]
 
-__all__ += ['MultiFea', 'MFNet']
+# __all__ += ['MultiFea', 'MFNet']
+
+__all__ += bnn_networks

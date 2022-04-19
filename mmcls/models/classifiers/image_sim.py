@@ -27,16 +27,7 @@ class ImageClassifierSim(ImageClassifier):
     def extract_feat(self, img):
         """Directly extract features from the backbone + neck."""
         cos_sim, x = self.backbone(img)
-        if self.return_tuple:
-            if not isinstance(x, tuple):
-                x = (x, )
-                warnings.warn(
-                    'We will force all backbones to return a tuple in the '
-                    'future. Please check your backbone and wrap the output '
-                    'as a tuple.', DeprecationWarning)
-        else:
-            if isinstance(x, tuple):
-                x = x[-1]
+
         if self.with_neck:
             x = self.neck(x)
         return cos_sim, x
