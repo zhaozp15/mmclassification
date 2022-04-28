@@ -41,8 +41,10 @@ class XnorBlock(nn.Module):
                  stride=1,
                  downsample=None,
                  scale_w_mode='mean',
+                 scale_x_detach=False,
                  **kwargs):
         super(XnorBlock, self).__init__()
+        self.scale_x_detach = scale_x_detach
         self.bn1 = nn.BatchNorm2d(in_channels)
         self.scale1 = InputScale(
             kernel_size=3,
@@ -83,12 +85,12 @@ class XnorBlock(nn.Module):
         out = self.bn1(x)
         K1 = self.scale1(out)
         out = self.conv1(out)
-        out = out * K1
+        out = out * self._detach(K1)
         out = self.relu1(out)
         out = self.bn2(out)
         K2 = self.scale2(out)
         out = self.conv2(out)
-        out = out * K2
+        out = out * self._detach(K2)
         if self.downsample is not None:
             identity = self.downsample(x)
         out += identity
@@ -96,9 +98,15 @@ class XnorBlock(nn.Module):
 
         return out
 
+    def _detach(self, x):
+        if self.scale_x_detach:
+            return x.detach()
+        else:
+            return x
+
 class XnorWBlock(nn.Module):
     '''
-    仅使用权重的缩放因子
+    仅使用权重的缩放因子，不使用激活值缩放因子
     '''
 
     def __init__(self,
