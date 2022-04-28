@@ -1,4 +1,3 @@
-from numpy import True_
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -32,12 +31,16 @@ class InputScale(nn.Module):
         return out
 
 class XnorBlock(nn.Module):
+    '''
+    对激活值和权重都使用绝对值均值计算的缩放因子
+    '''
 
     def __init__(self,
                  in_channels,
                  out_channels,
                  stride=1,
                  downsample=None,
+                 scale_w_mode='mean',
                  **kwargs):
         super(XnorBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_channels)
@@ -52,6 +55,7 @@ class XnorBlock(nn.Module):
             stride=stride,
             padding=1,
             bias=False,
+            scale_w_mode=scale_w_mode,
             **kwargs)
         self.relu1 = nn.ReLU(inplace=True)
         self.bn2 = nn.BatchNorm2d(out_channels)
@@ -66,8 +70,9 @@ class XnorBlock(nn.Module):
             stride=1,
             padding=1,
             bias=False,
+            scale_w_mode=scale_w_mode,
             **kwargs)
-        self.relu2 = nn.ReLU(inplace=True_)
+        self.relu2 = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
         self.out_channels = out_channels
@@ -91,15 +96,19 @@ class XnorBlock(nn.Module):
 
         return out
 
-class XnorBlockFP(nn.Module):
+class XnorWBlock(nn.Module):
+    '''
+    仅使用权重的缩放因子
+    '''
 
     def __init__(self,
                  in_channels,
                  out_channels,
                  stride=1,
                  downsample=None,
+                 scale_w_mode='mean',
                  **kwargs):
-        super(XnorBlockFP, self).__init__()
+        super(XnorWBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_channels)
         self.conv1 = BLConv2d(
             in_channels,
@@ -108,6 +117,7 @@ class XnorBlockFP(nn.Module):
             stride=stride,
             padding=1,
             bias=False,
+            scale_w_mode=scale_w_mode,
             **kwargs)
         self.relu1 = nn.ReLU(inplace=True)
         self.bn2 = nn.BatchNorm2d(out_channels)
@@ -118,8 +128,9 @@ class XnorBlockFP(nn.Module):
             stride=1,
             padding=1,
             bias=False,
+            scale_w_mode=scale_w_mode,
             **kwargs)
-        self.relu2 = nn.ReLU(inplace=True_)
+        self.relu2 = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
         self.out_channels = out_channels

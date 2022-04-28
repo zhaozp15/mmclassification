@@ -171,7 +171,7 @@ class BLConv2d(BaseBinaryConv2d):
                  groups=1,
                  bias=True,
                  binary_type=(True, True),
-                 scale_w_mode='mean',
+                 scale_w_mode='mean_detach',
                  **kwargs):
         super(BLConv2d, self).__init__(
             in_channels,
@@ -189,6 +189,7 @@ class BLConv2d(BaseBinaryConv2d):
         self.sign_w = RANetWSign()
 
         self.scale_w_methods = {
+            'mean_detach': self.scale_mean_detach,
             'mean': self.scale_mean,
             'none': self.scale_none,
         }
@@ -201,8 +202,11 @@ class BLConv2d(BaseBinaryConv2d):
         sw = self.scale_w_methods[self.scale_w_mode](w)
         return bw * sw
 
-    def scale_mean(self, w):
+    def scale_mean_detach(self, w):
         return w.abs().mean(dim=(1, 2, 3), keepdim=True).detach()
+
+    def scale_mean(self, w):
+        return w.abs().mean(dim=(1, 2, 3), keepdim=True)
     
     def scale_none(self, w):
         return 1.0

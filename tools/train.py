@@ -105,6 +105,12 @@ def main():
     if cfg.get('cudnn_benchmark', False):
         torch.backends.cudnn.benchmark = True
 
+    # 根据config文件设置是否使用TF32
+    # 详情参见 https://pytorch.org/docs/stable/notes/cuda.html
+    if 'allow_tf32' in cfg:
+        torch.backends.cuda.matmul.allow_tf32 = cfg['allow_tf32']
+        torch.backends.cudnn.allow_tf32 = cfg['allow_tf32']
+
     # work_dir is determined in this priority: CLI > segment in file > filename
     if args.work_dir is not None:
         # update configs according to CLI args if args.work_dir is not None
