@@ -9,7 +9,7 @@ from ...builder import BACKBONES
 from ..base_backbone import BaseBackbone
 
 from .bricks.acts import build_act
-from .blocks.xnor_block import XnorBlock, XnorBlockFP
+from .blocks.xnor_block import XnorBlock, XnorWBlock
 
 
 @BACKBONES.register_module()
@@ -64,7 +64,7 @@ class XnorNet(BaseBackbone):
 
     arch_settings = {
         'xnornet_1': (XnorBlock, (2, 2, 2, 2)),
-        'xnornet_float': (XnorBlockFP, (2, 2, 2, 2)),
+        'xnornet_float': (XnorWBlock, (2, 2, 2, 2)),
     }
 
     def __init__(self,
