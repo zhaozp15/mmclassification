@@ -31,8 +31,17 @@ class InputScale(nn.Module):
         return out
 
 class XnorBlock(nn.Module):
-    '''
-    对激活值和权重都使用绝对值均值计算的缩放因子
+    '''XNORNet的block
+
+    Args:
+        scale_x_mode (str): 输入缩放因子的使用方法
+            'none': 不使用输入缩放因子
+            'k': 使用论文中计算的输入缩放因子矩阵
+            'k_detach': 使用输入缩放矩阵，且该矩阵不参与反传
+        scale_x_mode (str): 权重缩放因子的使用方法
+            'none': 不使用权重缩放因子
+            'mean': 使用绝对值均值计算权重缩放因子
+            'mean_detach': 绝对值均值计算，且缩放因子不参与反传
     '''
 
     def __init__(self,
@@ -40,16 +49,22 @@ class XnorBlock(nn.Module):
                  out_channels,
                  stride=1,
                  downsample=None,
+                 scale_x_mode='none',
                  scale_w_mode='mean',
-                 scale_x_detach=False,
                  **kwargs):
         super(XnorBlock, self).__init__()
-        self.scale_x_detach = scale_x_detach
+        self.scale_x_mode = scale_x_mode
+        self.scale_x_detach = 'detach' in scale_x_mode
+        if scale_x_mode != 'none':
+            self.scale1 = InputScale(
+                kernel_size=3,
+                stride=stride,
+                padding=1)
+            self.scale2 = InputScale(
+                kernel_size=3,
+                stride=1,
+                padding=1)
         self.bn1 = nn.BatchNorm2d(in_channels)
-        self.scale1 = InputScale(
-            kernel_size=3,
-            stride=stride,
-            padding=1)
         self.conv1 = BLConv2d(
             in_channels,
             out_channels,
@@ -61,10 +76,6 @@ class XnorBlock(nn.Module):
             **kwargs)
         self.relu1 = nn.ReLU(inplace=True)
         self.bn2 = nn.BatchNorm2d(out_channels)
-        self.scale2 = InputScale(
-            kernel_size=3,
-            stride=1,
-            padding=1)
         self.conv2 = BLConv2d(
             out_channels,
             out_channels,
@@ -83,14 +94,20 @@ class XnorBlock(nn.Module):
         identity = x
 
         out = self.bn1(x)
-        K1 = self.scale1(out)
-        out = self.conv1(out)
-        out = out * self._detach(K1)
+        if self.scale_x_mode == 'none':
+            out = self.conv1(out)
+        else:
+            K1 = self.scale1(out)
+            out = self.conv1(out)
+            out = out * self._detach(K1)
         out = self.relu1(out)
         out = self.bn2(out)
-        K2 = self.scale2(out)
-        out = self.conv2(out)
-        out = out * self._detach(K2)
+        if self.scale_x_mode == 'none':
+            out = self.conv1(out)
+        else:
+            K2 = self.scale2(out)
+            out = self.conv2(out)
+            out = out * self._detach(K2)
         if self.downsample is not None:
             identity = self.downsample(x)
         out += identity
@@ -100,60 +117,8 @@ class XnorBlock(nn.Module):
 
     def _detach(self, x):
         if self.scale_x_detach:
+            breakpoint()
             return x.detach()
         else:
+            breakpoint()
             return x
-
-class XnorWBlock(nn.Module):
-    '''
-    仅使用权重的缩放因子，不使用激活值缩放因子
-    '''
-
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 stride=1,
-                 downsample=None,
-                 scale_w_mode='mean',
-                 **kwargs):
-        super(XnorWBlock, self).__init__()
-        self.bn1 = nn.BatchNorm2d(in_channels)
-        self.conv1 = BLConv2d(
-            in_channels,
-            out_channels,
-            kernel_size=3,
-            stride=stride,
-            padding=1,
-            bias=False,
-            scale_w_mode=scale_w_mode,
-            **kwargs)
-        self.relu1 = nn.ReLU(inplace=True)
-        self.bn2 = nn.BatchNorm2d(out_channels)
-        self.conv2 = BLConv2d(
-            out_channels,
-            out_channels,
-            kernel_size=3,
-            stride=1,
-            padding=1,
-            bias=False,
-            scale_w_mode=scale_w_mode,
-            **kwargs)
-        self.relu2 = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-        self.out_channels = out_channels
-
-    def forward(self, x):
-        identity = x
-
-        out = self.bn1(x)
-        out = self.conv1(out)
-        out = self.relu1(out)
-        out = self.bn2(out)
-        out = self.conv2(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out += identity
-        out = self.relu2(out)
-
-        return out

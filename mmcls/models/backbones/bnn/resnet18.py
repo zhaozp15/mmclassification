@@ -9,7 +9,7 @@ from ...builder import BACKBONES
 from ..base_backbone import BaseBackbone
 
 from .bricks.acts import build_act
-from .blocks.xnor_block import XnorBlock, XnorWBlock
+from .blocks.xnor_block import XnorBlock
 
 
 @BACKBONES.register_module()
@@ -65,7 +65,6 @@ class ResNet18(BaseBackbone):
 
     arch_settings = {
         'xnornet': (XnorBlock, (2, 2, 2, 2)),
-        'xnornet-w': (XnorWBlock, (2, 2, 2, 2)),
     }    
 
     def __init__(self,
