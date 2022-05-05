@@ -103,7 +103,7 @@ class XnorBlock(nn.Module):
         out = self.relu1(out)
         out = self.bn2(out)
         if self.scale_x_mode == 'none':
-            out = self.conv1(out)
+            out = self.conv2(out)
         else:
             K2 = self.scale2(out)
             out = self.conv2(out)
