@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from mmcls.models.backbones.bnn.bricks.acts import LearnableBias
 from ..bricks.binary_convs import BLConv2d
 
 class InputScale(nn.Module):
@@ -42,6 +44,7 @@ class XnorBlock(nn.Module):
             'none': 不使用权重缩放因子
             'mean': 使用绝对值均值计算权重缩放因子
             'mean_detach': 绝对值均值计算，且缩放因子不参与反传
+        trainable_thres (bool): 是否使用可学习阈值
     '''
 
     def __init__(self,
@@ -50,11 +53,13 @@ class XnorBlock(nn.Module):
                  stride=1,
                  downsample=None,
                  scale_x_mode='none',
-                 scale_w_mode='mean',
+                 scale_w_mode='mean_detach',
+                 trainable_thres=False,
                  **kwargs):
         super(XnorBlock, self).__init__()
         self.scale_x_mode = scale_x_mode
         self.scale_x_detach = 'detach' in scale_x_mode
+        self.trainable_thres = trainable_thres
         if scale_x_mode != 'none':
             self.scale1 = InputScale(
                 kernel_size=3,
@@ -64,7 +69,11 @@ class XnorBlock(nn.Module):
                 kernel_size=3,
                 stride=1,
                 padding=1)
+        if trainable_thres:
+            self.shift1 = LearnableBias(channels=1)
+            self.shift2 = LearnableBias(channels=1)
         self.bn1 = nn.BatchNorm2d(in_channels)
+        self.thres1 = nn.Parameter(torch.zeros(1, 1, 1, 1), requires_grad=trainable_thres)
         self.conv1 = BLConv2d(
             in_channels,
             out_channels,
@@ -76,6 +85,7 @@ class XnorBlock(nn.Module):
             **kwargs)
         self.relu1 = nn.ReLU(inplace=True)
         self.bn2 = nn.BatchNorm2d(out_channels)
+        self.thres2 = nn.Parameter(torch.zeros(1, 1, 1, 1), requires_grad=trainable_thres)
         self.conv2 = BLConv2d(
             out_channels,
             out_channels,
@@ -94,6 +104,7 @@ class XnorBlock(nn.Module):
         identity = x
 
         out = self.bn1(x)
+        out = out + self.thres1
         if self.scale_x_mode == 'none':
             out = self.conv1(out)
         else:
@@ -102,6 +113,7 @@ class XnorBlock(nn.Module):
             out = out * self._detach(K1)
         out = self.relu1(out)
         out = self.bn2(out)
+        out = out + self.thres2
         if self.scale_x_mode == 'none':
             out = self.conv2(out)
         else:

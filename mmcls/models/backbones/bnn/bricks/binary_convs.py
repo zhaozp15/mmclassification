@@ -4,7 +4,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .acts import (IRNetSign, RANetActSign, RANetWSign, STESign, TernarySign)
+from .acts import (IRNetSign, RANetActSign, RANetWSign, TernarySign,
+    STESign, PolySign,
+    STESignFake, PolySignFake)
 
 
 class BaseBinaryConv2d(nn.Conv2d):
@@ -49,6 +51,66 @@ class BaseBinaryConv2d(nn.Conv2d):
             self.dilation,
             self.groups)
         return output
+
+
+class BLConv2d(BaseBinaryConv2d):
+
+    def __init__(self,
+                 in_channels,
+                 out_channels,
+                 kernel_size,
+                 stride=1,
+                 padding=0,
+                 dilation=1,
+                 groups=1,
+                 bias=True,
+                 binary_type=(True, True),
+                 sign_x='poly',
+                 sign_w='ste',
+                 scale_w_mode='mean_detach',
+                 **kwargs):
+        super(BLConv2d, self).__init__(
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride, padding,
+            dilation,
+            groups,
+            bias,
+            binary_type,
+            **kwargs)
+        sign_methods = {
+            'poly': PolySign,
+            'ste': STESign,
+            'poly_fake': PolySignFake,
+            'ste_fake': STESignFake,
+        }
+        self.sign_x = sign_methods[sign_x]()
+        self.sign_w = sign_methods[sign_w]()
+
+        self.scale_w_mode = scale_w_mode
+        self.scale_w_methods = {
+            'mean_detach': self.scale_mean_detach,
+            'mean': self.scale_mean,
+            'none': self.scale_none,
+        }
+
+    def binary_input(self, x):
+        return self.sign_x(x)
+
+    def binary_weight(self, w):
+        bw = self.sign_w(w)
+        sw = self.scale_w_methods[self.scale_w_mode](w)
+        return bw * sw
+
+    def scale_mean_detach(self, w):
+        return w.abs().mean(dim=(1, 2, 3), keepdim=True).detach()
+
+    def scale_mean(self, w):
+        return w.abs().mean(dim=(1, 2, 3), keepdim=True)
+    
+    def scale_none(self, w):
+        return 1.0
 
 
 class IRConv2d(BaseBinaryConv2d):
@@ -159,60 +221,6 @@ class ANDConv2d(nn.Conv2d):
         return output
 
 
-class BLConv2d(BaseBinaryConv2d):
-
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 kernel_size,
-                 stride=1,
-                 padding=0,
-                 dilation=1,
-                 groups=1,
-                 bias=True,
-                 binary_type=(True, True),
-                 scale_w_mode='mean_detach',
-                 **kwargs):
-        super(BLConv2d, self).__init__(
-            in_channels,
-            out_channels,
-            kernel_size,
-            stride, padding,
-            dilation,
-            groups,
-            bias,
-            binary_type,
-            **kwargs)
-        self.scale_w_mode = scale_w_mode
-
-        self.sign_a = RANetActSign()
-        self.sign_w = RANetWSign()
-
-        self.scale_w_methods = {
-            'mean_detach': self.scale_mean_detach,
-            'mean': self.scale_mean,
-            'none': self.scale_none,
-        }
-
-    def binary_input(self, x):
-        return self.sign_a(x)
-
-    def binary_weight(self, w):
-        bw = self.sign_w(w)
-        sw = self.scale_w_methods[self.scale_w_mode](w)
-        return bw * sw
-
-    def scale_mean_detach(self, w):
-        return w.abs().mean(dim=(1, 2, 3), keepdim=True).detach()
-
-    def scale_mean(self, w):
-        return w.abs().mean(dim=(1, 2, 3), keepdim=True)
-    
-    def scale_none(self, w):
-        return 1.0
-
-
-
 class BLSTEConv2d(BaseBinaryConv2d):
 
     def __init__(self, in_channels, out_channels, kernel_size,
@@ -283,43 +291,6 @@ class TAConv2d(BaseBinaryConv2d):
         super(TAConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, binary_type, **kwargs)
         
         self.sign_a = TernarySign(thres)
-        self.sign_w = RANetWSign()
-
-    def binary_input(self, x):
-        return self.sign_a(x)
-
-    def binary_weight(self, w):
-        bw = self.sign_w(w)
-        sw = w.abs().mean(dim=(1, 2, 3), keepdim=True).detach()
-        # sw = torch.mean(torch.mean(torch.mean(abs(w),dim=3,keepdim=True),dim=2,keepdim=True),dim=1,keepdim=True).detach()
-        return bw * sw
-
-
-class XnorConv2d(BaseBinaryConv2d):
-
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 kernel_size,
-                 stride=1,
-                 padding=0,
-                 dilation=1,
-                 groups=1,
-                 bias=True,
-                 binary_type=(True, True),
-                 **kwargs):
-        super(BLConv2d, self).__init__(
-            in_channels,
-            out_channels,
-            kernel_size,
-            stride, padding,
-            dilation,
-            groups,
-            bias,
-            binary_type,
-            **kwargs)
-        
-        self.sign_a = RANetActSign()
         self.sign_w = RANetWSign()
 
     def binary_input(self, x):

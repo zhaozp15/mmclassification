@@ -13,6 +13,65 @@ class Mish(nn.Module):
         return x
 
 
+class STESign(nn.Module):
+    """sign function using STE for bp"""
+    def __init__(self, clip=1):
+        super(STESign, self).__init__()
+        assert clip > 0
+        self.clip = clip
+
+    def forward(self, x):
+        out_no_grad = torch.sign(x)
+        cliped_out = torch.clamp(x, -self.clip, self.clip)
+        out = out_no_grad.detach() - cliped_out.detach() + cliped_out
+
+        return out
+
+class PolySign(nn.Module):
+    """sign function using poly for bp"""
+    def __init__(self):
+        super(PolySign, self).__init__()
+
+    def forward(self, x):
+        out_no_grad = torch.sign(x)
+        mask1 = x < -1
+        mask2 = x < 0
+        mask3 = x < 1
+        out1 = (-1) * mask1.type(torch.float32) + (x*x + 2*x) * (1-mask1.type(torch.float32))
+        out2 = out1 * mask2.type(torch.float32) + (-x*x + 2*x) * (1-mask2.type(torch.float32))
+        out3 = out2 * mask3.type(torch.float32) + 1 * (1- mask3.type(torch.float32))
+        out = out_no_grad.detach() - out3.detach() + out3
+
+        return out
+
+class STESignFake(nn.Module):
+    """前传和反传都使用STE"""
+    def __init__(self, clip=1):
+        super(STESignFake, self).__init__()
+        assert clip > 0
+        self.clip = clip
+
+    def forward(self, x):
+        out = torch.clamp(x, -self.clip, self.clip)
+
+        return out
+
+class PolySignFake(nn.Module):
+    """前传和反传都使用多项式近似函数"""
+    def __init__(self):
+        super(PolySignFake, self).__init__()
+
+    def forward(self, x):
+        mask1 = x < -1
+        mask2 = x < 0
+        mask3 = x < 1
+        out1 = (-1) * mask1.type(torch.float32) + (x*x + 2*x) * (1-mask1.type(torch.float32))
+        out2 = out1 * mask2.type(torch.float32) + (-x*x + 2*x) * (1-mask2.type(torch.float32))
+        out3 = out2 * mask3.type(torch.float32) + 1 * (1- mask3.type(torch.float32))
+
+        return out3
+
+
 class IRNetSign(Function):
     """Sign function from IR-Net, which can add EDE progress"""
     @staticmethod
@@ -80,21 +139,6 @@ class TernarySign(nn.Module):
         out5 = out4 * mask5 + 1 * (1 - mask4)
 
         out = out_forward.detach() - out5.detach() + out5
-
-        return out
-
-
-class STESign(nn.Module):
-    """a sign function using STE"""
-    def __init__(self, clip=1):
-        super(STESign, self).__init__()
-        assert clip > 0
-        self.clip = clip
-
-    def forward(self, x):
-        out_no_grad = torch.sign(x)
-        cliped_out = torch.clamp(x, -self.clip, self.clip)
-        out = out_no_grad.detach() - cliped_out.detach() + cliped_out
 
         return out
 
