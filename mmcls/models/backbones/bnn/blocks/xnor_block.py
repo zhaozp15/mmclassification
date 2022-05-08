@@ -69,9 +69,6 @@ class XnorBlock(nn.Module):
                 kernel_size=3,
                 stride=1,
                 padding=1)
-        if trainable_thres:
-            self.shift1 = LearnableBias(channels=1)
-            self.shift2 = LearnableBias(channels=1)
         self.bn1 = nn.BatchNorm2d(in_channels)
         self.thres1 = nn.Parameter(torch.zeros(1, 1, 1, 1), requires_grad=trainable_thres)
         self.conv1 = BLConv2d(
